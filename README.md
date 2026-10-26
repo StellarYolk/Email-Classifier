@@ -3,7 +3,8 @@
 
 A local, agentic CLI tool that classifies your unread Gmail inbox using a locally-run LLM (via Ollama), sorts emails into Gmail labels automatically, and hands off anything it can't confidently place to the user for a quick interactive decision.
 
-Built as a learning project for understanding agentic systems from scratch - no agent framework is used; the classify $\rightarrow$ validate $\rightarrow$ act $\rightarrow$ record loop is hand-rolled in plain Python.
+
+Since this project was originally intended as an experiment, agent framework is delayed to later stages; the classify $\rightarrow$ validate $\rightarrow$ act $\rightarrow$ record loop is hand-rolled in plain Python.
 
 
 ## What it does (In this version)
