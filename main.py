@@ -36,7 +36,7 @@ def _prompt_choice(options: list[Label]) -> str:
             return display[int(choice) -1]
         print(f"Invalid choice -- enter a number from 1 to {len(display)}")
 
-def process_held_emails(held_emails: list[dict], report_path, processed_ids, service = None, label_manager = None ) -> list[dict]:
+def process_held_emails(held_emails: list[dict], report_path, memory, processed_ids, service = None, label_manager = None ) -> list[dict]:
     resolved = []
 
     if not held_emails: return resolved
@@ -91,7 +91,7 @@ def process_held_emails(held_emails: list[dict], report_path, processed_ids, ser
 
     return resolved
 
-def process_batch(emails: list[dict], processed_ids: set[str], report_path, service = None, label_manager = None) -> tuple[list[dict], dict]:
+def process_batch(emails: list[dict], processed_ids: set[str], report_path, memory, service = None, label_manager = None) -> tuple[list[dict], dict]:
     results = []
     held_emails = []
     counts = {"sorted": 0, "archived": 0, "held": 0}
@@ -122,7 +122,7 @@ def process_batch(emails: list[dict], processed_ids: set[str], report_path, serv
             processed_ids.add(email["id"])
             results.append(item)
 
-    resolved = process_held_emails(held_emails, report_path, processed_ids)
+    resolved = process_held_emails(held_emails, report_path, memory, processed_ids)
     results.extend(resolved)
 
     return results, counts
@@ -133,14 +133,16 @@ def run(all_emails: list[dict]) -> list[dict]:
 
     processed_ids = load_processed_ids()
     report_path = start_report()
+    memory = load_memory()
     print(f"Report: {report_path}")
     print(f"Already processed (will skip): {len(processed_ids)} emails")
 
     for batch_num, batch in enumerate(batches, start=1):
         print(f"\n--- Batch {batch_num}/{len(batches)} || {len(batch)} emails ---")
 
-        batch_results, counts = process_batch(batch, processed_ids, report_path)
+        batch_results, counts = process_batch(batch, processed_ids, report_path, memory)
         all_results.extend(batch_results)
+        save_memory(memory)
 
         print(f"Sorted: {counts["sorted"]}\t Archived: {counts["archived"]}\t Held: {counts["held"]}\n")
 
@@ -158,6 +160,7 @@ def run_from_gmail() -> list[dict]:
 
     processed_ids = load_processed_ids()
     report_path = start_report()
+    memory = load_memory()
     print(f"Report: {report_path}")
     print(f"Already processed : {len(processed_ids)} email(s)")
 
@@ -176,8 +179,9 @@ def run_from_gmail() -> list[dict]:
         print(f"\n--- Batch {batch_num} ({len(message_ids)}) emails ---")
 
         batch_emails = [parse_message(fetch_full_message(service, mId)) for mId in message_ids]
-        batch_results, counts = process_batch(batch_emails, processed_ids, report_path, service, label_manager)
+        batch_results, counts = process_batch(batch_emails, processed_ids, report_path, memory, service, label_manager)
         all_results.extend(batch_results)
+        save_memory(memory)
 
         print(f"Sorted : {counts["sorted"]}\tArchived : {counts["archived"]}\tHeld : {counts["held"]}\n")
 
