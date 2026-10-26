@@ -3,6 +3,7 @@ from schema import AUTO_SORTED_LABELS, AUTO_ARCHIVED_LABELS, HELD_LABELS, Label
 from persistance import mark_processed, load_processed_ids, start_report, append_report_entry, append_held_report_entry
 from gmail_client import get_service, fetch_unread_ids, fetch_full_message, parse_message
 from gmail_actions import LabelManager, apply_outcome
+from memory import load_memory, save_memory, log_correction
 
 BATCH_SIZE = 20
 
@@ -68,6 +69,11 @@ def process_held_emails(held_emails: list[dict], report_path, processed_ids, ser
 
         bucket = {"delete": "delete", "leave": "left"}.get(decision, "relabeled")
         final_label = decision if isinstance(decision, Label)  else None
+
+        corrected_label = Label.DELETE if decision == "delete" else final_label
+        if corrected_label is not None and corrected_label != original.label:
+            log_correction(memory, email, original.label, corrected_label, source="held_review")
+
 
         if service is not None:
             apply_outcome(service, label_manager, email, bucket, final_label)
