@@ -3,7 +3,7 @@ from schema import AUTO_SORTED_LABELS, AUTO_ARCHIVED_LABELS, HELD_LABELS, Label
 from persistance import mark_processed, load_processed_ids, start_report, append_report_entry, append_held_report_entry
 from gmail_client import get_service, fetch_unread_ids, fetch_full_message, parse_message
 from gmail_actions import LabelManager, apply_outcome
-from memory import load_memory, save_memory, log_correction
+from memory import load_memory, save_memory, log_correction, proposal_is_promotable, confirm_sender_rule, dismiss_proposals
 
 BATCH_SIZE = 20
 
@@ -194,6 +194,45 @@ def finalize_batch(pending_items: list[dict], report_path, processed_ids, servic
         append_report_entry(report_path, email, classification, bucket, final_label)
         processed_ids.add(email["id"])
 
+def review_sender_proposals(memory) -> None:
+    promotable = {
+        sender: proposal
+        for sender, proposal in memory["pending_proposals"].items()
+        if proposal_is_promotable(proposal)
+    }
+
+    if not promotable: return
+
+    print(f"\n--- {len(promotable)} sender(s) have repeated corrections ---")
+
+    for sender, proposal in promotable.items():
+        suggested_label = Label(proposal["suggested_label"])
+        correction_ids = set(proposal["corrections"])
+        evidence = [e for e in memory["correction_log"] if e["id"] in correction_ids]
+
+        print(f"\nSender: {sender}")
+        print(f"Suggested rule: {sender} -> {suggested_label.value}     ({len(evidence)} correction(s) behind it)")
+        for entry in evidence:
+            print(f"\t- \"{entry['subject']}\"  (model said {entry['original_label']}, you said {entry['corrected_label']})")
+ 
+        choice = input("Create this auto-apply rule? [y]es / [n]o, dismiss / [c]hoose a different label: ").strip().lower()
+ 
+        if choice == "y":
+            confirm_sender_rule(memory, sender, suggested_label)
+            print(f"Rule created: {sender} -> {suggested_label.value}. Future emails from this sender skip the LLM.")
+        elif choice == "c":
+            options = _build_relabel_menu(include_delete=True)
+            picked = _prompt_choice(options)
+            if picked == "leave":
+                print("Left pending -- you'll be asked again next time this sender is corrected.")
+                continue
+            confirm_sender_rule(memory, sender, Label(picked))
+            print(f"Rule created: {sender} -> {picked}. Future emails from this sender skip the LLM.")
+        else:
+            dismiss_proposals(memory, sender)
+            print("Dismissed. Won't ask again unless this sender gets corrected further.")
+         
+
 def run(all_emails: list[dict]) -> list[dict]:
     batches = chunk(all_emails, BATCH_SIZE)
     all_results = []
@@ -222,6 +261,8 @@ def run(all_emails: list[dict]) -> list[dict]:
         print("applying this batch's labels...")
         finalize_batch(pending_items, report_path, processed_ids)
         all_results.extend(pending_items)
+
+        review_sender_proposals(memory)
         save_memory(memory)
 
         if not is_last_batch and answer != "y":
@@ -270,6 +311,8 @@ def run_from_gmail() -> list[dict]:
         print("Applying this batch's labels...")
         finalize_batch(pending_items, report_path, processed_ids, service, label_manager)
         all_results.extend(pending_items)
+
+        review_sender_proposals(memory)
         save_memory()
 
         if not has_more:
