@@ -18,6 +18,13 @@ def route(classification, email) -> str:
     else:
         raise ValueError(f"label {label} is not as signed to any bucket")
 
+def _bucket_for_label(label: Label) -> str:
+    if label == Label.DELETE: return "deleted"
+    elif label in AUTO_SORTED_LABELS: return "sorted"
+    elif label in AUTO_ARCHIVED_LABELS: return "archived"
+    else:
+        raise ValueError(f"label {label} has no apply-time bucket")
+
 def _build_relabel_menu(include_delete: bool) -> list[Label]:
     options = sorted(AUTO_SORTED_LABELS, key=lambda l: l.value)
     options += sorted(AUTO_ARCHIVED_LABELS, key=lambda l: l.value)
@@ -92,8 +99,9 @@ def process_held_emails(held_emails: list[dict], report_path, memory, processed_
     return resolved
 
 def process_batch(emails: list[dict], processed_ids: set[str], report_path, memory, service = None, label_manager = None) -> tuple[list[dict], dict]:
-    results = []
+    # results = []
     held_emails = []
+    pending_items = []
     counts = {"sorted": 0, "archived": 0, "held": 0}
 
     for email in emails:
@@ -114,18 +122,77 @@ def process_batch(emails: list[dict], processed_ids: set[str], report_path, memo
         if bucket == "held":
             held_emails.append(item)
         else: 
-            if service is not None:
-                apply_outcome(service, label_manager, email, bucket, classification.label)
+            pending_items.append(item)
+            # if service is not None:
+            #     apply_outcome(service, label_manager, email, bucket, classification.label)
             
-            mark_processed(email["id"])
-            append_report_entry(report_path, email, classification, bucket)
-            processed_ids.add(email["id"])
-            results.append(item)
+            # mark_processed(email["id"])
+            # append_report_entry(report_path, email, classification, bucket)
+            # processed_ids.add(email["id"])
+            # results.append(item)
 
-    resolved = process_held_emails(held_emails, report_path, memory, processed_ids)
-    results.extend(resolved)
+    resolved = process_held_emails(held_emails, report_path, memory, processed_ids, service, label_manager)
+    # results.extend(resolved)
 
-    return results, counts
+    return resolved, pending_items, counts
+
+def review_and_flag(pending_items: list[dict], memory) -> None:
+    if not pending_items: return
+
+    print(f"\n--- {len(pending_items)} email(s) classified this batch (not yet applied) ---")
+    for i, item in enumerate(pending_items, start=1):
+        email = item["email"]
+        print(f"    {i}. [{item["bucket"].upper()}] {item["classification"].label.value} -- {email["sender"]} -- {email["subject"]}")
+
+    raw = input("\n Flag any to correct before applying? Numbers comma-separated, or Enter to skip;  ").strip()
+    if not raw: return
+
+    try:
+        indices = {int(x.strip()) for x in raw.split(",") if x.strip()}
+    except ValueError:
+        print("Couldn't parse that input -- skipping flagging\n")
+
+    for i in indices:
+        if not (1 <= i <= len(pending_items)):
+            print(f"skipping invalid index {i}")
+            return
+
+        item = pending_items[i-1]
+        email = item["email"]
+        original = item["classification"]
+
+        print(f"\nFrom: {email["sender"]}")
+        print(f"\nsubject: {email["subject"]}")
+        print(f"\nModel guessed: {original.label.value} ({original.reasoning})")
+
+        options = _build_relabel_menu(include_delete=True)
+        choice = _prompt_choice(options)
+
+        if choice == "leave":
+            continue
+
+        new_label = Label(choice)
+        if new_label == original.label:
+            continue
+
+        item["final_bucket"] = new_label
+        item["bucket"] = _bucket_for_label(new_label)
+
+        log_correction(memory, email, original.label, new_label, source="flagged_after_apply")
+
+def finalize_batch(pending_items: list[dict], report_path, processed_ids, service = None, label_manager = None) -> None:
+    for item in pending_items:
+        email = item["email"]
+        classification = item["classification"]
+        bucket = item["bucket"]
+        final_label = item["final_label"]
+
+        if service is not None:
+            apply_outcome(service, label_manager, email, bucket, final_label)
+
+        mark_processed(email["id"])
+        append_report_entry(report_path, email, classification, bucket, final_label)
+        processed_ids.add(email["id"])
 
 def run(all_emails: list[dict]) -> list[dict]:
     batches = chunk(all_emails, BATCH_SIZE)
@@ -140,17 +207,26 @@ def run(all_emails: list[dict]) -> list[dict]:
     for batch_num, batch in enumerate(batches, start=1):
         print(f"\n--- Batch {batch_num}/{len(batches)} || {len(batch)} emails ---")
 
-        batch_results, counts = process_batch(batch, processed_ids, report_path, memory)
-        all_results.extend(batch_results)
+        resolved, pending_items, counts = process_batch(batch, processed_ids, report_path, memory)
+        all_results.extend(resolved)
+
+        review_and_flag(pending_items, memory)
+
+        print(f"sorted: {counts["sorted"]}\t Archived: {counts["archived"]}\t Held: {counts["held"]}\n")
+
+        is_last_batch = batch_num == len(batch)
+        answer = "n"
+        if not is_last_batch:
+            answer = input(f"Continue to batch {batch_num + 1}? [y/n]: ").strip().lower()
+
+        print("applying this batch's labels...")
+        finalize_batch(pending_items, report_path, processed_ids)
+        all_results.extend(pending_items)
         save_memory(memory)
 
-        print(f"Sorted: {counts["sorted"]}\t Archived: {counts["archived"]}\t Held: {counts["held"]}\n")
-
-        if batch_num != len(batches):
-            answer = input(f"Continue to batch {batch_num +1}? [y/n]: ").strip().lower()
-            if answer != "y":
-                print("Stopped by user.\n")
-                break
+        if not is_last_batch and answer != "y":
+            print("Stopped by user\n")
+            break
 
     return all_results
 
@@ -179,17 +255,27 @@ def run_from_gmail() -> list[dict]:
         print(f"\n--- Batch {batch_num} ({len(message_ids)}) emails ---")
 
         batch_emails = [parse_message(fetch_full_message(service, mId)) for mId in message_ids]
-        batch_results, counts = process_batch(batch_emails, processed_ids, report_path, memory, service, label_manager)
-        all_results.extend(batch_results)
-        save_memory(memory)
+        resolved, pending_items, counts = process_batch(batch_emails, processed_ids, report_path, memory, service, label_manager)
+        all_results.extend(resolved)
+
+        review_and_flag(pending_items, memory)
 
         print(f"Sorted : {counts["sorted"]}\tArchived : {counts["archived"]}\tHeld : {counts["held"]}\n")
 
-        if page_token is None:
-            print("No more unread emails")
+        has_more = page_token is not None
+        answer = "n"
+        if has_more:
+            answer = input("Continue to next batch? (y/n) ").strip().lower()
+
+        print("Applying this batch's labels...")
+        finalize_batch(pending_items, report_path, processed_ids, service, label_manager)
+        all_results.extend(pending_items)
+        save_memory()
+
+        if not has_more:
+            print("no more unread emails")
             break
 
-        answer = input("Continue to next batch? (y/n) ").strip().lower()
         if answer != "y":
             print("Stopped by user")
             break

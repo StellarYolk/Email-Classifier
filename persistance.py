@@ -21,9 +21,15 @@ def start_report() -> Path:
     report_path.touch()
     return report_path
 
-def append_report_entry(report_path: Path, email: dict, classification, bucket: str) -> None:
+def append_report_entry(report_path: Path, email: dict, classification, bucket: str, final_label = None) -> None:
+    applied_label = final_label if final_label is not None else classification.label
+    override_note = ""
+    if final_label is not None and final_label != classification.label:
+        override_note = f"  (model originally guessed: {classification.label.value}\n)"
+    
+    
     entry = (
-        f"[{bucket.upper()}] {classification.label.value}\n"
+        f"[{bucket.upper()}] {applied_label.value}\n"
         f"  Reason : {classification.reasoning}"
         f"  From : {email["sender"]}\n"
         f"  Subject : {email["subject"]}\n"
