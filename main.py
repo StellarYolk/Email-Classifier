@@ -1,9 +1,9 @@
 from classify import classify_email
-from schema import AUTO_SORTED_LABELS, AUTO_ARCHIVED_LABELS, HELD_LABELS, Label
+from schema import AUTO_SORTED_LABELS, AUTO_ARCHIVED_LABELS, HELD_LABELS, Label, EmailClassifier
 from persistance import mark_processed, load_processed_ids, start_report, append_report_entry, append_held_report_entry
 from gmail_client import get_service, fetch_unread_ids, fetch_full_message, parse_message
 from gmail_actions import LabelManager, apply_outcome
-from memory import load_memory, save_memory, log_correction, proposal_is_promotable, confirm_sender_rule, dismiss_proposals
+from memory import load_memory, save_memory, log_correction, log_unresolved, proposal_is_promotable, get_sender_rule, confirm_sender_rule, dismiss_proposals
 
 BATCH_SIZE = 20
 
@@ -57,10 +57,11 @@ def process_held_emails(held_emails: list[dict], report_path, memory, processed_
         print(f"\nFrom: {email["sender"]}")
         print(f"Subject: {email['subject']}")
         print(f"Body: \n{email['body']}")
-        print(f"===> Model originality guessed: {original.label.value} ({original.reasoning})")
+        guesser = "Rule" if item.get("source") == "rule" else "Model"
+        print(f"===> {guesser} guessed: {original.label.value} ({original.reasoning})")
 
         if original.label == Label.DELETE:
-            confirm = input("Model suggests DELETE. Confirm? [y/n] ").strip().lower()
+            confirm = input(f"{guesser} suggests DELETE. Confirm? [y/n] ").strip().lower()
             if confirm == "y": 
                 decision = "delete"
             else:
@@ -102,22 +103,33 @@ def process_batch(emails: list[dict], processed_ids: set[str], report_path, memo
     # results = []
     held_emails = []
     pending_items = []
-    counts = {"sorted": 0, "archived": 0, "held": 0}
+    counts = {"sorted": 0, "archived": 0, "held": 0, "auto_ruled": 0}
 
     for email in emails:
         if email["id"] in processed_ids:
             print(f"Already processed {email["id"]}, Skipping")
             continue
 
-        classification = classify_email(
-            sender=email["sender"],
-            subject=email["subject"],
-            body=email["body"]
-        )
+        rule_label = get_sender_rule(memory, email["sender"])
+
+        if rule_label is not None:
+            classification = EmailClassifier(
+                reasoning=f"Auto-applied via confirmed sender rule for {email["sender"]}",
+                label=rule_label
+            )
+            source = "rule"
+            counts["auto_ruled"] +=1
+        else:
+            classification = classify_email(
+                sender=email["sender"],
+                subject=email["subject"],
+                body=email["body"]
+            )
+            source = "llm"
 
         bucket = route(classification, email)
         counts[bucket] += 1
-        item = {"email": email, "classification": classification, "bucket": bucket}
+        item = {"email": email, "classification": classification, "bucket": bucket, "final_label": classification.label, "source": source}
 
         if bucket == "held":
             held_emails.append(item)
@@ -162,8 +174,8 @@ def review_and_flag(pending_items: list[dict], memory) -> None:
         original = item["classification"]
 
         print(f"\nFrom: {email["sender"]}")
-        print(f"\nsubject: {email["subject"]}")
-        print(f"\nModel guessed: {original.label.value} ({original.reasoning})")
+        print(f"Subject: {email["subject"]}")
+        print(f"{"Rule" if item.get("source") == "rule" else "Model"} guessed: {original.label.value} ({original.reasoning})")
 
         options = _build_relabel_menu(include_delete=True)
         choice = _prompt_choice(options)
@@ -209,11 +221,14 @@ def review_sender_proposals(memory) -> None:
         suggested_label = Label(proposal["suggested_label"])
         correction_ids = set(proposal["corrections"])
         evidence = [e for e in memory["correction_log"] if e["id"] in correction_ids]
+        existing_rule = memory["sender_rules"].get(sender)
 
         print(f"\nSender: {sender}")
+        if existing_rule:
+            print(f"(currently has an active rule -> {existing_rule['label']})")
         print(f"Suggested rule: {sender} -> {suggested_label.value}     ({len(evidence)} correction(s) behind it)")
         for entry in evidence:
-            print(f"\t- \"{entry['subject']}\"  (model said {entry['original_label']}, you said {entry['corrected_label']})")
+            print(f"\t- \"{entry['subject']}\"  ({entry['original_label']} -> {entry['corrected_label']})")
  
         choice = input("Create this auto-apply rule? [y]es / [n]o, dismiss / [c]hoose a different label: ").strip().lower()
  
@@ -251,7 +266,7 @@ def run(all_emails: list[dict]) -> list[dict]:
 
         review_and_flag(pending_items, memory)
 
-        print(f"sorted: {counts["sorted"]}\t Archived: {counts["archived"]}\t Held: {counts["held"]}\n")
+        print(f"Sorted: {counts["sorted"]}\t Archived: {counts["archived"]}\t Held: {counts["held"]}\t Auto-ruled: {counts["auto_ruled"]}\n")
 
         is_last_batch = batch_num == len(batch)
         answer = "n"
@@ -301,7 +316,7 @@ def run_from_gmail() -> list[dict]:
 
         review_and_flag(pending_items, memory)
 
-        print(f"Sorted : {counts["sorted"]}\tArchived : {counts["archived"]}\tHeld : {counts["held"]}\n")
+        print(f"Sorted: {counts["sorted"]}\t Archived: {counts["archived"]}\t Held: {counts["held"]}\t Auto-ruled: {counts["auto_ruled"]}\n")
 
         has_more = page_token is not None
         answer = "n"

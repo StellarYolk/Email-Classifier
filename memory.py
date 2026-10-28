@@ -15,6 +15,7 @@ _EMPTY_MEMORY = {
     "sender_rules": {},
     "pending_proposals": {},
     "correction_log": [],
+    "unresolved_log": [],
     "patterns": []
 }
 
@@ -49,6 +50,14 @@ def _construct_memory_md(memory: dict) -> None:
         )
 
     lines.append("")
+    lines.append("## Unresolved (ambiguous)")
+    unresolved_count = len(memory(["unresolved_log"]))
+    if unresolved_count == 0:
+        lines.append("_None logged yet_")
+    else:
+        lines.append(f"_{unresolved_count} email(s) left unresolved during held review -- raw entries in memory.json, not shown here._")
+
+    lines.append("")
     lines.append("## patterns")
     if not memory["patterns"]:
         lines.append("_None found yet_")
@@ -81,6 +90,7 @@ def log_correction(memory: dict, email: dict, original_label: Label, corrected_l
         "timestamp": _now(),
         "email_id": email["id"],
         "sender": email["sender"],
+        "subject": email["subject"],
         "body_snippet": email["body"][:200],
         "original_label": original_label,
         "corrected_label": corrected_label,
@@ -105,6 +115,20 @@ def log_correction(memory: dict, email: dict, original_label: Label, corrected_l
 
 def proposal_is_promotable(proposal: dict) -> bool:
     return len(proposal["corrections"]) >= PROMOTION_THRESHOLD
+
+def log_unresolved(memory: dict, email: dict, original_label: Label, source: str) -> dict:
+    entry = {
+        "id": f"unres_{len(memory["unresolved_log"]):06d}",
+        "timestamp": _now(),
+        "email_id": email["id"],
+        "sender": email["sender"],
+        "subject": email["subject"],
+        "body_snippet": email["body"][:200],
+        "original_label": original_label.value,
+        "source": source,
+    }
+    memory["unresolved_log"].append(entry)
+    return entry
 
 def confirm_sender_rule(memory: dict, sender: str, label: Label) -> None:
     proposal = memory["pending_proposals"].pop(sender, None)
