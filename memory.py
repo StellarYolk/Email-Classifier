@@ -9,6 +9,7 @@ MEMORY_MD_FILE = Path("memory.md")
 
 PROMOTION_THRESHOLD = 2
 DEFAULT_MAX_PATTERNS = 15
+DISTILL_MIN_PER_LABEL = 3
 
 _EMPTY_MEMORY = {
     "schema_version": 1,
@@ -144,13 +145,54 @@ def confirm_sender_rule(memory: dict, sender: str, label: Label) -> None:
 def dismiss_proposals(memory: dict, sender: dict) -> None:
     memory["pending_proposals"].pop(sender, None)
 
-def add_pattern(memory: dict, rule_text: str, label: Label, derived_from: list[str]) -> None:
+# def add_pattern(memory: dict, rule_text: str, label: Label, derived_from: list[str]) -> None:
+#     pattern_id = f"pat_{len(memory["patterns"]) + 1:02d}"
+#     memory["patterns"].append({
+#         "id": pattern_id,
+#         "rule": rule_text,
+#         "label": label.value,
+#         "derived_from": derived_from,
+#         "created_at": _now(),
+#         "active": True
+#     })
+
+
+def get_undistilled_groups(memory: dict, min_per_label: int = DISTILL_MIN_PER_LABEL) -> dict[str, list[dict]]:
+    groups: dict[str, list[dict]] = {}
+    for entry in memory["correction_log"]:
+        if entry.get("distilled", False):
+            continue
+        groups.setdefault(entry["corrected_label"], []).append(entry)
+ 
+    return {label: entries for label, entries in groups.items() if len(entries) >= min_per_label}
+
+def get_active_pattern_for_label(memory: dict, label_value: str) -> dict | None:
+    return next(
+        (p for p in memory["patterns"] if p["label"] == label_value and p.get("active", True)),
+        None
+    )
+
+def replace_pattern(memory: dict, label: Label, rule_text: str, examples: list[dict], derived_from: list[str]) -> str:
+    existing = get_active_pattern_for_label(memory, label.value)
+    if existing is not None:
+        existing["active"] = False
+
     pattern_id = f"pat_{len(memory["patterns"]) + 1:02d}"
+    now = _now()
     memory["patterns"].append({
         "id": pattern_id,
         "rule": rule_text,
         "label": label.value,
+        "examples": examples,
         "derived_from": derived_from,
-        "created_at": _now(),
+        "created_at": existing["created_at"] if existing else now,
+        "updated_at": now,
         "active": True
     })
+    return pattern_id
+
+def mark_correction_distilled(memory: dict, correction_ids: list[str]) -> None:
+    ids = set(correction_ids)
+    for entry in memory["correction_log"]:
+        if entry["id"] in ids:
+            entry["distilled"] = True
