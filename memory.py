@@ -191,7 +191,7 @@ def replace_pattern(memory: dict, label: Label, rule_text: str, examples: list[d
     })
     return pattern_id
 
-def mark_correction_distilled(memory: dict, correction_ids: list[str]) -> None:
+def mark_corrections_distilled(memory: dict, correction_ids: list[str]) -> None:
     ids = set(correction_ids)
     for entry in memory["correction_log"]:
         if entry["id"] in ids:
