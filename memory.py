@@ -79,8 +79,9 @@ def get_sender_rule(memory: dict, sender: str) -> Label | None:
 
 
 def get_active_patterns(memory: dict, max_patterns: int = DEFAULT_MAX_PATTERNS) -> list[str]:
-    active = [p["rule"] for p in memory["patterns"] if p.get("active", True)]
-    return active[-max_patterns:]
+    active = [p for p in memory["patterns"] if p.get("active", True)]
+    active.sort(key=lambda p: p.get("updated_at", p.get("created_at", "")), reverse=True)
+    return active[:max_patterns]
 
 
 def log_correction(memory: dict, email: dict, original_label: Label, corrected_label: Label, source: str) -> dict:

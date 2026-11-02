@@ -6,9 +6,12 @@ import json
 import requests
 
 from schema import EmailClassifier, Label
+from memory import get_active_patterns
 
 OLLAMA_URL = os.environ["OLLAMA_URL"]
 MODEL_NAME = os.environ["MODEL_NAME"]
+
+MAX_PATTERN_PROMPT_CHARS = 2000
 
 SYSTEM_PROMPT = """
 You are an email classification assistant. Given the sender and content of one email, classify it into exactly one label.
@@ -26,6 +29,34 @@ Label definitions:
  
 Think briefly about the signal in the reasoning field, then choose exactly one label. Only use information present in the email; do not guess facts not stated.
 """
+
+def _format_pattern_block(memory: dict) -> str:
+    patterns = get_active_patterns(memory)
+    if not patterns: return ""
+
+    header = "\n\nLearned patterns from past user corrections (use these as additional signal, alongside the label definitions above):"
+    blocks = []
+    used_chars = len(header)
+
+    for p in patterns:
+        lines = [f'- {p["label"]}: {p["rule"]}']
+        for eg in p.get("examples", [])[:2]:
+            lines.append(f' e.g. sender "{eg["sender"]}", subject "{eg["subject"]}" -> {p["label"]}')
+        block_text = "\n".join(lines)
+
+        if used_chars + len(block_text) + 1 > MAX_PATTERN_PROMPT_CHARS:
+            break
+ 
+        blocks.append(block_text)
+        used_chars += len(block_text) + 1
+ 
+    if not blocks:
+        return ""
+ 
+    return header + "\n" + "\n".join(blocks)
+
+def build_system_prompt(memory: dict) -> str:
+    return SYSTEM_PROMPT + _format_pattern_block(memory)
 
 def build_user_prompt(sender: str, subject: str, body: str) -> str:
     return (
