@@ -65,14 +65,14 @@ def build_user_prompt(sender: str, subject: str, body: str) -> str:
         f"Body: \n{body}"
     )
 
-def classify_email(sender: str, subject: str, body: str) -> EmailClassifier:
+def classify_email(sender: str, subject: str, body: str, system_prompt: str = SYSTEM_PROMPT) -> EmailClassifier:
     user_prompt = build_user_prompt(sender, subject, body)
     schema = EmailClassifier.model_json_schema()
 
     payload = {
         "model": MODEL_NAME,
         "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
         ],
         "format": schema,

@@ -1,4 +1,4 @@
-from classify import classify_email
+from classify import classify_email, build_system_prompt
 from schema import AUTO_SORTED_LABELS, AUTO_ARCHIVED_LABELS, HELD_LABELS, Label, EmailClassifier
 from persistance import mark_processed, load_processed_ids, start_report, append_report_entry, append_held_report_entry
 from gmail_client import get_service, fetch_unread_ids, fetch_full_message, parse_message
@@ -123,7 +123,8 @@ def process_batch(emails: list[dict], processed_ids: set[str], report_path, memo
             classification = classify_email(
                 sender=email["sender"],
                 subject=email["subject"],
-                body=email["body"]
+                body=email["body"],
+                system_prompt=build_system_prompt(memory)
             )
             source = "llm"
 
