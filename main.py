@@ -5,7 +5,7 @@ from gmail_client import get_service, fetch_unread_ids, fetch_full_message, pars
 from gmail_actions import LabelManager, apply_outcome
 from memory import load_memory, save_memory, log_correction, log_unresolved, proposal_is_promotable, get_sender_rule, confirm_sender_rule, dismiss_proposals
 
-BATCH_SIZE = 20
+BATCH_SIZE = 5
 
 def chunk(items: list, size: int) -> list[list]:
     return [items[i:i + size] for i in range(0, len(items), size)]
@@ -342,14 +342,21 @@ def run_from_gmail() -> list[dict]:
     return all_results
 
 if __name__ == "__main__":
-    # fake_emails = [
-    #     {
-    #         "id": f"fake-{i}",
-    #         "sender": f"sender{i}@example.com",
-    #         "subject": f"Test Email {i}",
-    #         "body": "Generic test content, please put some effort"
-    #     }
-    #     for i in range(1, 26)
-    # ]
-    # run(fake_emails)
-    run_from_gmail()
+    fake_emails = [
+    {"id": "e1", "sender": "recruiter@bigco.com", "subject": "We'd love to interview you",
+     "body": "We came across your profile and think you'd be a great fit for our Senior Engineer role. Can we schedule a call this week to discuss further?"},
+    {"id": "e2", "sender": "recruiter@bigco.com", "subject": "Following up on our opportunity",
+     "body": "Just checking in -- are you still interested in exploring the Senior Engineer position we reached out about last week?"},
+    {"id": "e3", "sender": "newsletter@technews.com", "subject": "This Week in Tech: Issue #142",
+     "body": "Your weekly roundup of the biggest stories in tech, AI, and startups. Read on for this week's top picks."},
+    {"id": "e4", "sender": "random@mystery.com", "subject": "re: re: fwd: important!!",
+     "body": "hey just wanted to follow up on this, let me know what you think, thanks"},
+    {"id": "e5", "sender": "shop@dealsnow.com", "subject": "FLASH SALE ends tonight!!!",
+     "body": "Don't miss out -- everything in store is 70% off for the next 6 hours only. Shop now before it's gone!"},
+    {"id": "e6", "sender": "recruiter@bigco.com", "subject": "One more role you might like",
+     "body": "We have another opening that matches your background even better -- a Staff Engineer role. Interested in a quick chat?"},
+    {"id": "e7", "sender": "talent@otherco.com", "subject": "Exciting opportunity at OtherCo",
+     "body": "Our hiring team reviewed your background and would love to connect about an open Backend Engineer position."},
+]
+    run(fake_emails)
+    # run_from_gmail()

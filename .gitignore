@@ -6,3 +6,5 @@ idea.md
 .env
 processed_ids.txt
 report*.txt
+memory.json
+memory.md

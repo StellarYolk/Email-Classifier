@@ -52,7 +52,7 @@ def _construct_memory_md(memory: dict) -> None:
 
     lines.append("")
     lines.append("## Unresolved (ambiguous)")
-    unresolved_count = len(memory(["unresolved_log"]))
+    unresolved_count = len(memory["unresolved_log"])
     if unresolved_count == 0:
         lines.append("_None logged yet_")
     else:

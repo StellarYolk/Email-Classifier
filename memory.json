@@ -1,7 +1,8 @@
 {
-    "schema_version": 1,
-    "sender_rules": {},
-    "pending_proposals": {},
-    "correction_log": [],
-    "patterns": []
+  "schema_version": 1,
+  "sender_rules": {},
+  "pending_proposals": {},
+  "correction_log": [],
+  "unresolved_log": [],
+  "patterns": []
 }
